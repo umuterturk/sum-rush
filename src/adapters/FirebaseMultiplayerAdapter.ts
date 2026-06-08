@@ -53,6 +53,7 @@ function parseSnapshot(matchId: string, data: MatchDoc, localUid: string): Match
       opponentUid: '',
       opponentName: '',
       opponentScore: 0,
+      opponentWantsRematch: false,
     };
   }
 
@@ -67,6 +68,7 @@ function parseSnapshot(matchId: string, data: MatchDoc, localUid: string): Match
     opponentUid,
     opponentName: opponent.name,
     opponentScore: opponent.score,
+    opponentWantsRematch: data.rematchRequestedBy === opponentUid,
   };
   console.log('[MP:parseSnapshot] returning', result);
   return result;
@@ -288,6 +290,13 @@ export class FirebaseMultiplayerAdapter implements MultiplayerPort {
     if (!this.matchId || !this.localUid) return;
     await updateDoc(this.matchRef, {
       [`players.${this.localUid}.score`]: score,
+    });
+  }
+
+  async requestRematch(): Promise<void> {
+    if (!this.matchId || !this.localUid) return;
+    await updateDoc(this.matchRef, {
+      rematchRequestedBy: this.localUid,
     });
   }
 

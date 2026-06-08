@@ -22,5 +22,7 @@ export class NoopMultiplayerAdapter implements MultiplayerPort {
 
   async publishScore(_score: number): Promise<void> {}
 
+  async requestRematch(): Promise<void> {}
+
   async leave(): Promise<void> {}
 }

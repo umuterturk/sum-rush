@@ -33,6 +33,7 @@ export interface MultiplayerPort {
   cancel(): Promise<void>;
   subscribe(handler: (snapshot: MatchSnapshot | null) => void): () => void;
   publishScore(score: number): Promise<void>;
+  requestRematch(): Promise<void>;
   leave(): Promise<void>;
 }
 

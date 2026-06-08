@@ -7,6 +7,7 @@ interface MultiplayerSession {
   matchConfig: MatchConfig | null;
   opponentScore: number;
   opponentName: string;
+  opponentWantsRematch: boolean;
   inviteCode: string | null;
   error: string | null;
   isAvailable: boolean;
@@ -15,6 +16,7 @@ interface MultiplayerSession {
   joinRoom: (code: string) => Promise<void>;
   cancel: () => Promise<void>;
   publishScore: (score: number) => Promise<void>;
+  requestRematch: () => Promise<void>;
   markPlaying: () => void;
   markEnded: () => void;
   getResult: (localScore: number) => MatchResult | null;
@@ -39,6 +41,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
   const [matchConfig, setMatchConfig] = useState<MatchConfig | null>(null);
   const [opponentScore, setOpponentScore] = useState(0);
   const [opponentName, setOpponentName] = useState('');
+  const [opponentWantsRematch, setOpponentWantsRematch] = useState(false);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +61,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       setMatchConfig(snapshotToConfig(snapshot));
       setOpponentScore(snapshot.opponentScore);
       setOpponentName(snapshot.opponentName);
+      setOpponentWantsRematch(snapshot.opponentWantsRematch);
       if (snapshot.inviteCode) setInviteCode(snapshot.inviteCode);
 
       const matchReady = snapshot.status === 'ready' && Boolean(snapshot.opponentUid);
@@ -118,6 +122,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
     setMatchConfig(null);
     setOpponentScore(0);
     setOpponentName('');
+    setOpponentWantsRematch(false);
     setInviteCode(null);
     setError(null);
   }, [multiplayer]);
@@ -127,7 +132,19 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
     [multiplayer],
   );
 
-  const markPlaying = useCallback(() => setPhase('playing'), []);
+  const requestRematch = useCallback(
+    () => multiplayer.requestRematch(),
+    [multiplayer],
+  );
+
+  const markPlaying = useCallback(() => {
+    // Start fresh: a new match always begins with the opponent at zero.
+    // Guards against a stale snapshot from the previous match leaking a
+    // non-zero opponent score into the new game.
+    setOpponentScore(0);
+    setOpponentWantsRematch(false);
+    setPhase('playing');
+  }, []);
   const markEnded = useCallback(() => setPhase('ended'), []);
 
   const getResult = useCallback(
@@ -145,6 +162,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
     setMatchConfig(null);
     setOpponentScore(0);
     setOpponentName('');
+    setOpponentWantsRematch(false);
     setInviteCode(null);
     setError(null);
   }, [multiplayer]);
@@ -155,6 +173,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       matchConfig,
       opponentScore,
       opponentName,
+      opponentWantsRematch,
       inviteCode,
       error,
       isAvailable: available,
@@ -163,6 +182,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       joinRoom,
       cancel,
       publishScore,
+      requestRematch,
       markPlaying,
       markEnded,
       getResult,
@@ -173,6 +193,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       matchConfig,
       opponentScore,
       opponentName,
+      opponentWantsRematch,
       inviteCode,
       error,
       available,
@@ -181,6 +202,7 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       joinRoom,
       cancel,
       publishScore,
+      requestRematch,
       markPlaying,
       markEnded,
       getResult,

@@ -1,8 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getActiveNumbers } from '../domain/numbers';
-import type { GameAction, GameState } from '../domain/types';
+import type { FallingNumber, GameAction, GameState } from '../domain/types';
 import { MAX_STACK_SIZE, REMOVE_COOLDOWN_MS, TARGET_SUM } from '../domain/constants';
 import type { ClockPort } from '../ports';
+
+interface PopEffect {
+  id: string;
+  x: number;
+  y: number;
+  value: number;
+  color: string;
+}
 
 interface Props {
   gameState: GameState;
@@ -74,9 +82,22 @@ export function GameScreen({
   const isLeading = isMultiplayer && localScore > opponentScore;
   const isBehind = isMultiplayer && localScore < opponentScore;
 
-  function collect(numberId: string) {
-    onDispatch({ type: 'COLLECT_NUMBER', playerId: 'local', numberId, at: clock.now() });
-  }
+  const [popEffects, setPopEffects] = useState<PopEffect[]>([]);
+
+  const collect = useCallback((num: FallingNumber) => {
+    onDispatch({ type: 'COLLECT_NUMBER', playerId: 'local', numberId: num.id, at: clock.now() });
+    const effectId = num.id + '-' + clock.now();
+    setPopEffects(prev => [...prev, {
+      id: effectId,
+      x: num.xPosition,
+      y: num.yPosition,
+      value: num.value,
+      color: tileColor(num.value),
+    }]);
+    setTimeout(() => {
+      setPopEffects(prev => prev.filter(p => p.id !== effectId));
+    }, 500);
+  }, [onDispatch, clock]);
 
   function remove(stackIndex: number) {
     onDispatch({ type: 'REMOVE_STACK_ITEM', playerId: 'local', stackIndex, at: clock.now() });
@@ -146,11 +167,37 @@ export function GameScreen({
             }}
             onPointerDown={(e) => {
               e.preventDefault();
-              collect(num.id);
+              collect(num);
             }}
           >
             {num.value}
           </button>
+        ))}
+        {popEffects.map(p => (
+          <div
+            key={p.id}
+            className="tile-pop"
+            aria-hidden="true"
+            style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+          >
+            {/* Bubble that pops */}
+            <div className="tile-pop__bubble" style={{ background: p.color }}>
+              {p.value}
+            </div>
+            {/* Shockwave ring */}
+            <div className="tile-pop__ring" style={{ borderColor: p.color }} />
+            {/* Particles radiating outward */}
+            {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => (
+              <div
+                key={angle}
+                className="tile-pop__particle"
+                style={{
+                  background: p.color,
+                  '--angle': `${angle}deg`,
+                } as React.CSSProperties}
+              />
+            ))}
+          </div>
         ))}
       </div>
 

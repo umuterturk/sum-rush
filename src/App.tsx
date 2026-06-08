@@ -131,7 +131,8 @@ export default function App() {
       setAppMode('multiplayer');
       setLobbyMode('quick');
       analytics.track('mp_search_started');
-      void mp.reset().then(() => {
+      // Signal opponent before leaving the match doc
+      void mp.requestRematch().then(() => mp.reset()).then(() => {
         setIsRematching(false);
         void mp.quickMatch();
       });
@@ -258,6 +259,7 @@ export default function App() {
       isMultiplayer={isMultiplayer}
       opponentScore={mp.opponentScore}
       opponentName={mp.opponentName}
+      opponentWantsRematch={isMultiplayer && mp.opponentWantsRematch}
       result={isMultiplayer ? mp.getResult(gameState.players['local']?.score ?? 0) : null}
     />
   );

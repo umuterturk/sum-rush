@@ -8,6 +8,7 @@ interface Props {
   isMultiplayer?: boolean;
   opponentScore?: number;
   opponentName?: string;
+  opponentWantsRematch?: boolean;
   result?: MatchResult | null;
 }
 
@@ -31,6 +32,7 @@ export function EndScreen({
   isMultiplayer = false,
   opponentScore = 0,
   opponentName: _opponentName,
+  opponentWantsRematch = false,
   result = null,
 }: Props) {
   const isNewBest = !isMultiplayer && score > 0 && score >= bestScore;
@@ -67,6 +69,12 @@ export function EndScreen({
               <div className="best-score-chip">BEST {bestScore}</div>
             )}
           </>
+        )}
+
+        {opponentWantsRematch && (
+          <div className="rematch-nudge">
+            OPPONENT WANTS A REMATCH!
+          </div>
         )}
 
         <div className="end-buttons">

@@ -39,6 +39,7 @@ export interface MatchSnapshot {
   opponentUid: string;
   opponentName: string;
   opponentScore: number;
+  opponentWantsRematch: boolean;
 }
 
 export interface MatchDoc {
@@ -50,4 +51,5 @@ export interface MatchDoc {
   createdBy: string;
   createdAt: unknown;
   players: Record<string, MatchPlayer>;
+  rematchRequestedBy?: string;
 }
