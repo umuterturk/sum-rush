@@ -25,6 +25,7 @@ export interface MatchConfig {
   seed: string;
   matchDuration: number;
   status: FirestoreMatchStatus;
+  round: number;
   opponentUid: string;
   opponentName: string;
 }
@@ -36,6 +37,7 @@ export interface MatchSnapshot {
   seed: string;
   matchDuration: number;
   status: FirestoreMatchStatus;
+  round: number;
   opponentUid: string;
   opponentName: string;
   opponentScore: number;
@@ -48,8 +50,9 @@ export interface MatchDoc {
   status: FirestoreMatchStatus;
   seed: string;
   matchDuration: number;
+  round: number;
   createdBy: string;
   createdAt: unknown;
   players: Record<string, MatchPlayer>;
-  rematchRequestedBy?: string;
+  rematchReady?: Record<string, boolean>;
 }

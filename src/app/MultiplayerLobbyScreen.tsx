@@ -52,7 +52,7 @@ export function MultiplayerLobbyScreen({
   return (
     <div className="screen lobby-screen">
       <div className="lobby-content">
-        {mode === 'quick' && isRematch && (
+        {isRematch && (
           <>
             <div className="lobby-rematch-badge">REMATCH</div>
             <div className="lobby-spinner" aria-hidden="true" />
@@ -61,7 +61,7 @@ export function MultiplayerLobbyScreen({
           </>
         )}
 
-        {mode === 'quick' && !isRematch && (
+        {!isRematch && mode === 'quick' && (
           <>
             <div className="lobby-spinner" aria-hidden="true" />
             <h2 className="lobby-title">FINDING OPPONENT</h2>
@@ -69,7 +69,7 @@ export function MultiplayerLobbyScreen({
           </>
         )}
 
-        {mode === 'create' && (
+        {!isRematch && mode === 'create' && (
           <>
             <h2 className="lobby-title">YOUR ROOM</h2>
             {inviteCode ? (
@@ -93,7 +93,7 @@ export function MultiplayerLobbyScreen({
           </>
         )}
 
-        {mode === 'join' && !isSearching && (
+        {!isRematch && mode === 'join' && !isSearching && (
           <>
             <h2 className="lobby-title">JOIN ROOM</h2>
             <input
@@ -116,7 +116,7 @@ export function MultiplayerLobbyScreen({
           </>
         )}
 
-        {mode === 'join' && isSearching && (
+        {!isRematch && mode === 'join' && isSearching && (
           <>
             <div className="lobby-spinner" aria-hidden="true" />
             <h2 className="lobby-title">JOINING ROOM</h2>
@@ -124,7 +124,7 @@ export function MultiplayerLobbyScreen({
           </>
         )}
 
-        {isWaiting && opponentFound && (
+        {!isRematch && isWaiting && opponentFound && (
           <div className="opponent-found">
             <span className="opponent-found-name">OPPONENT FOUND</span>
           </div>

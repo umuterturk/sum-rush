@@ -8,6 +8,8 @@ interface MultiplayerSession {
   opponentScore: number;
   opponentName: string;
   opponentWantsRematch: boolean;
+  opponentPresent: boolean;
+  round: number;
   inviteCode: string | null;
   error: string | null;
   isAvailable: boolean;
@@ -31,6 +33,7 @@ function snapshotToConfig(snapshot: MatchSnapshot): MatchConfig {
     seed: snapshot.seed,
     matchDuration: snapshot.matchDuration,
     status: snapshot.status,
+    round: snapshot.round,
     opponentUid: snapshot.opponentUid,
     opponentName: snapshot.opponentName,
   };
@@ -42,6 +45,8 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
   const [opponentScore, setOpponentScore] = useState(0);
   const [opponentName, setOpponentName] = useState('');
   const [opponentWantsRematch, setOpponentWantsRematch] = useState(false);
+  const [opponentPresent, setOpponentPresent] = useState(false);
+  const [round, setRound] = useState(0);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +67,8 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       setOpponentScore(snapshot.opponentScore);
       setOpponentName(snapshot.opponentName);
       setOpponentWantsRematch(snapshot.opponentWantsRematch);
+      setOpponentPresent(Boolean(snapshot.opponentUid));
+      setRound(snapshot.round);
       if (snapshot.inviteCode) setInviteCode(snapshot.inviteCode);
 
       const matchReady = snapshot.status === 'ready' && Boolean(snapshot.opponentUid);
@@ -123,6 +130,8 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
     setOpponentScore(0);
     setOpponentName('');
     setOpponentWantsRematch(false);
+    setOpponentPresent(false);
+    setRound(0);
     setInviteCode(null);
     setError(null);
   }, [multiplayer]);
@@ -163,6 +172,8 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
     setOpponentScore(0);
     setOpponentName('');
     setOpponentWantsRematch(false);
+    setOpponentPresent(false);
+    setRound(0);
     setInviteCode(null);
     setError(null);
   }, [multiplayer]);
@@ -174,6 +185,8 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       opponentScore,
       opponentName,
       opponentWantsRematch,
+      opponentPresent,
+      round,
       inviteCode,
       error,
       isAvailable: available,
@@ -192,6 +205,8 @@ export function useMultiplayer(multiplayer: MultiplayerPort, available: boolean)
       phase,
       matchConfig,
       opponentScore,
+      opponentPresent,
+      round,
       opponentName,
       opponentWantsRematch,
       inviteCode,

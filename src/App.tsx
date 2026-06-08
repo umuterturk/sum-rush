@@ -33,6 +33,7 @@ export default function App() {
   const [isRematching, setIsRematching] = useState(false);
   const prevScoreRef = useRef(0);
   const matchStartedRef = useRef(false);
+  const roundRef = useRef(0);
 
   const deepLinkHandled = useRef(false);
   useEffect(() => {
@@ -44,6 +45,7 @@ export default function App() {
     const joinCode = params.get('join');
     if (joinCode && firebaseReady) {
       deepLinkHandled.current = true;
+      roundRef.current = 0;
       // Clear the URL param so refresh doesn't re-join
       window.history.replaceState({}, '', window.location.pathname);
       setAppMode('multiplayer');
@@ -79,6 +81,7 @@ export default function App() {
 
   const handleQuickMatch = useCallback(() => {
     analytics.track('mode_selected', { mode: 'quick' });
+    roundRef.current = 0;
     setAppMode('multiplayer');
     setLobbyMode('quick');
     analytics.track('mp_search_started');
@@ -87,6 +90,7 @@ export default function App() {
 
   const handleCreateRoom = useCallback(() => {
     analytics.track('mode_selected', { mode: 'create_room' });
+    roundRef.current = 0;
     setAppMode('multiplayer');
     setLobbyMode('create');
     analytics.track('mp_room_created');
@@ -95,6 +99,7 @@ export default function App() {
 
   const handleJoinRoomLobby = useCallback(() => {
     analytics.track('mode_selected', { mode: 'join_room' });
+    roundRef.current = 0;
     setAppMode('multiplayer');
     setLobbyMode('join');
   }, []);
@@ -125,23 +130,22 @@ export default function App() {
   );
 
   const handlePlayAgain = useCallback(() => {
-    dispatchAction({ type: 'RESET' });
     if (isMultiplayer) {
+      // Rematch reuses the SAME match doc. Just mark ourselves ready; when both
+      // players are ready the doc resets (new seed, scores 0, round++) and the
+      // round-change effect below starts the new game for both clients.
       setIsRematching(true);
-      setAppMode('multiplayer');
-      setLobbyMode('quick');
-      analytics.track('mp_search_started');
-      // Signal opponent before leaving the match doc
-      void mp.requestRematch().then(() => mp.reset()).then(() => {
-        setIsRematching(false);
-        void mp.quickMatch();
-      });
+      analytics.track('mp_rematch_requested');
+      void mp.requestRematch();
     } else {
+      dispatchAction({ type: 'RESET' });
       setShowCountdown(true);
     }
   }, [isMultiplayer, mp, dispatchAction]);
 
   const handleBackToMenu = useCallback(() => {
+    roundRef.current = 0;
+    setIsRematching(false);
     void mp.reset();
     setAppMode('solo');
     dispatchAction({ type: 'RESET' });
@@ -178,6 +182,32 @@ export default function App() {
       setShowCountdown(true);
     }
   }, [isMultiplayer, mp.phase, showCountdown, gameState.matchStatus]);
+
+  // Detect a rematch: the SAME match doc bumped its round (new seed, scores 0).
+  // Both clients react here and start the new game from the shared seed.
+  useEffect(() => {
+    if (!isMultiplayer || mp.round === 0) return;
+    if (roundRef.current === 0) {
+      // First round of this session — adopt without triggering a restart.
+      roundRef.current = mp.round;
+      return;
+    }
+    if (mp.round > roundRef.current) {
+      console.log('[App] rematch detected — round', roundRef.current, '->', mp.round);
+      roundRef.current = mp.round;
+      setIsRematching(false);
+      dispatchAction({ type: 'RESET' });
+      setShowCountdown(true);
+    }
+  }, [isMultiplayer, mp.round, dispatchAction]);
+
+  // If the opponent leaves while we're waiting for a rematch, bail to the menu.
+  useEffect(() => {
+    if (isRematching && isMultiplayer && mp.matchConfig && !mp.opponentPresent) {
+      console.log('[App] opponent left during rematch wait — returning to menu');
+      handleBackToMenu();
+    }
+  }, [isRematching, isMultiplayer, mp.matchConfig, mp.opponentPresent, handleBackToMenu]);
 
   const getMatchSeed = useCallback(() => {
     if (isMultiplayer && mp.matchConfig?.seed) return mp.matchConfig.seed;

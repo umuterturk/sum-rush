@@ -50,6 +50,7 @@ function parseSnapshot(matchId: string, data: MatchDoc, localUid: string): Match
       seed: data.seed,
       matchDuration: data.matchDuration,
       status: data.status,
+      round: data.round ?? 1,
       opponentUid: '',
       opponentName: '',
       opponentScore: 0,
@@ -65,10 +66,11 @@ function parseSnapshot(matchId: string, data: MatchDoc, localUid: string): Match
     seed: data.seed,
     matchDuration: data.matchDuration,
     status: data.status,
+    round: data.round ?? 1,
     opponentUid,
     opponentName: opponent.name,
     opponentScore: opponent.score,
-    opponentWantsRematch: data.rematchRequestedBy === opponentUid,
+    opponentWantsRematch: Boolean(data.rematchReady && data.rematchReady[opponentUid]),
   };
   console.log('[MP:parseSnapshot] returning', result);
   return result;
@@ -191,6 +193,7 @@ export class FirebaseMultiplayerAdapter implements MultiplayerPort {
       status: 'waiting',
       seed: String(Date.now()),
       matchDuration: MATCH_DURATION_MS,
+      round: 1,
       createdBy: uid,
       createdAt: serverTimestamp(),
       players: {
@@ -218,6 +221,7 @@ export class FirebaseMultiplayerAdapter implements MultiplayerPort {
       status: 'waiting',
       seed: String(Date.now()),
       matchDuration: MATCH_DURATION_MS,
+      round: 1,
       createdBy: uid,
       createdAt: serverTimestamp(),
       players: {
@@ -295,8 +299,39 @@ export class FirebaseMultiplayerAdapter implements MultiplayerPort {
 
   async requestRematch(): Promise<void> {
     if (!this.matchId || !this.localUid) return;
-    await updateDoc(this.matchRef, {
-      rematchRequestedBy: this.localUid,
+    const uid = this.localUid;
+    const ref = this.matchRef;
+    const db = getFirebaseDb();
+
+    await runTransaction(db, async transaction => {
+      const snap = await transaction.get(ref);
+      if (!snap.exists()) throw new Error('Match no longer exists.');
+
+      const data = snap.data() as MatchDoc;
+      const playerUids = Object.keys(data.players);
+      const rematchReady = { ...(data.rematchReady ?? {}), [uid]: true };
+
+      const bothReady =
+        playerUids.length === 2 && playerUids.every(p => rematchReady[p]);
+
+      if (bothReady) {
+        // Both players agreed — reset the SAME match for a new round:
+        // fresh seed, scores zeroed, status ready, round bumped, flags cleared.
+        const update: Record<string, unknown> = {
+          seed: String(Date.now()) + '-' + Math.floor(Math.random() * 1e6),
+          status: 'ready',
+          round: (data.round ?? 1) + 1,
+          rematchReady: {},
+        };
+        for (const p of playerUids) {
+          update[`players.${p}.score`] = 0;
+        }
+        console.log('[MP:requestRematch] both ready — resetting match, new round=', update.round);
+        transaction.update(ref, update);
+      } else {
+        console.log('[MP:requestRematch] marking self ready, waiting for opponent');
+        transaction.update(ref, { rematchReady });
+      }
     });
   }
 
