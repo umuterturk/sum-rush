@@ -26,7 +26,7 @@ export default function App() {
     setShowCountdown(true);
   }
 
-  if (showCountdown && gameState.matchStatus === 'idle') {
+  if (showCountdown) {
     return <CountdownScreen onComplete={startMatch} />;
   }
 
@@ -46,6 +46,7 @@ export default function App() {
     );
   }
 
+  // matchStatus === 'ended'
   return (
     <EndScreen
       score={gameState.players['local']?.score ?? 0}
