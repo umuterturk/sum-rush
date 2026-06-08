@@ -35,7 +35,7 @@ export const SPAWN_INTERVAL_MIN = 700;   // ms
 export const SPAWN_INTERVAL_VARIANCE = 900; // ms
 
 // Stop spawning this many ms before match ends (tiles still need time to fall)
-export const SPAWN_CUTOFF_BEFORE_END_MS = 1_000;
+export const SPAWN_CUTOFF_BEFORE_END_MS = 1_500;
 
 // Tile dimensions as fraction of arena width (for hit-test awareness)
 export const TILE_RADIUS_NORM = 0.07;
