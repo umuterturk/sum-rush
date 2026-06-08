@@ -47,5 +47,6 @@ export interface GameState {
 export type GameAction =
   | { type: 'START_MATCH'; seed: string; at: number }
   | { type: 'END_MATCH'; at: number }
+  | { type: 'RESET' }
   | { type: 'COLLECT_NUMBER'; playerId: string; numberId: string; at: number }
   | { type: 'REMOVE_STACK_ITEM'; playerId: string; stackIndex: number; at: number };

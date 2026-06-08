@@ -52,6 +52,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, matchStatus: 'ended' };
     }
 
+    case 'RESET': {
+      return INITIAL_GAME_STATE;
+    }
+
     case 'COLLECT_NUMBER': {
       const player = state.players[action.playerId];
       if (!player) return state;

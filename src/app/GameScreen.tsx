@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { getActiveNumbers } from '../domain/numbers';
 import type { GameAction, GameState } from '../domain/types';
 import { MAX_STACK_SIZE, REMOVE_COOLDOWN_MS, TARGET_SUM } from '../domain/constants';
@@ -9,6 +10,10 @@ interface Props {
   bestScore: number;
   onDispatch: (action: GameAction) => void;
   clock: ClockPort;
+  isMultiplayer?: boolean;
+  opponentScore?: number;
+  opponentName?: string;
+  onScoreChange?: (score: number) => void;
 }
 
 function formatTime(ms: number): string {
@@ -21,21 +26,32 @@ function formatTime(ms: number): string {
 /** One distinct color per value (1–7) for instant visual recognition. */
 function tileColor(value: number): string {
   switch (value) {
-    case 1: return '#4fc3f7'; // sky blue
-    case 2: return '#4dd0e1'; // cyan
-    case 3: return '#81c784'; // green
-    case 4: return '#fff176'; // yellow
-    case 5: return '#ffb74d'; // orange
-    case 6: return '#ef9a9a'; // red-pink
-    case 7: return '#ce93d8'; // purple
+    case 1: return '#4fc3f7';
+    case 2: return '#4dd0e1';
+    case 3: return '#81c784';
+    case 4: return '#fff176';
+    case 5: return '#ffb74d';
+    case 6: return '#ef9a9a';
+    case 7: return '#ce93d8';
     default: return '#ffffff';
   }
 }
 
-export function GameScreen({ gameState, logicalTime, bestScore, onDispatch, clock }: Props) {
+export function GameScreen({
+  gameState,
+  logicalTime,
+  bestScore,
+  onDispatch,
+  clock,
+  isMultiplayer = false,
+  opponentScore = 0,
+  opponentName: _opponentName,
+  onScoreChange,
+}: Props) {
   const player = gameState.players['local'];
   const timeLeft = gameState.matchDuration - logicalTime;
   const isUrgent = timeLeft < 30_000;
+  const localScore = player?.score ?? 0;
 
   const collectedIds = player?.collectedIds ?? new Set<string>();
   const activeNumbers = getActiveNumbers(gameState.stream, collectedIds, logicalTime);
@@ -47,6 +63,17 @@ export function GameScreen({ gameState, logicalTime, bestScore, onDispatch, cloc
   const cooldownPct = (cooldownRemaining / REMOVE_COOLDOWN_MS) * 100;
   const onCooldown = cooldownRemaining > 0;
 
+  const prevScoreRef = useRef(localScore);
+  useEffect(() => {
+    if (onScoreChange && localScore !== prevScoreRef.current) {
+      onScoreChange(localScore);
+      prevScoreRef.current = localScore;
+    }
+  }, [localScore, onScoreChange]);
+
+  const isLeading = isMultiplayer && localScore > opponentScore;
+  const isBehind = isMultiplayer && localScore < opponentScore;
+
   function collect(numberId: string) {
     onDispatch({ type: 'COLLECT_NUMBER', playerId: 'local', numberId, at: clock.now() });
   }
@@ -56,35 +83,57 @@ export function GameScreen({ gameState, logicalTime, bestScore, onDispatch, cloc
   }
 
   return (
-    <div className="screen game-screen">
-      {/* ── HUD ── */}
-      <div className="hud">
-        <div className="hud-item">
-          <span className="hud-label">SCORE</span>
-          <span key={player?.score ?? 0} className="hud-value hud-score">
-            {player?.score ?? 0}
-          </span>
-        </div>
+    <div className={`screen game-screen${isMultiplayer ? ' game-screen--vs' : ''}`}>
+      {isMultiplayer ? (
+        <div className="vs-hud">
+          <div className={`vs-card vs-card--you${isLeading ? ' vs-card--leading' : ''}${isBehind ? ' vs-card--behind' : ''}`}>
+            <span className="vs-card-label">YOU</span>
+            <span key={localScore} className="vs-card-score">{localScore}</span>
+            {isLeading && <span className="vs-lead-badge">WINNING</span>}
+          </div>
 
-        <div className="hud-item">
-          <span className="hud-label">TARGET</span>
-          <span className="hud-value hud-target">{TARGET_SUM}</span>
-        </div>
+          <div className="vs-center">
+            <span className={`vs-time${isUrgent ? ' vs-time--urgent' : ''}`}>
+              {formatTime(timeLeft)}
+            </span>
+            <span className="vs-versus">VS</span>
+            <span className="vs-target-line">target <strong>{TARGET_SUM}</strong></span>
+          </div>
 
-        <div className="hud-item">
-          <span className="hud-label">TIME</span>
-          <span className={`hud-value${isUrgent ? ' hud-urgent' : ''}`}>
-            {formatTime(timeLeft)}
-          </span>
+          <div className={`vs-card vs-card--opp${!isLeading && !isBehind ? '' : isLeading ? ' vs-card--behind' : ' vs-card--leading'}`}>
+            <span className="vs-card-label">THEM</span>
+            <span key={opponentScore} className="vs-card-score vs-card-score--opp">{opponentScore}</span>
+            {isBehind && <span className="vs-lead-badge vs-lead-badge--danger">WINNING</span>}
+          </div>
         </div>
+      ) : (
+        <div className="hud">
+          <div className="hud-item">
+            <span className="hud-label">SCORE</span>
+            <span key={localScore} className="hud-value hud-score">
+              {localScore}
+            </span>
+          </div>
 
-        <div className="hud-item">
-          <span className="hud-label">BEST</span>
-          <span className="hud-value">{bestScore}</span>
+          <div className="hud-item">
+            <span className="hud-label">TARGET</span>
+            <span className="hud-value hud-target">{TARGET_SUM}</span>
+          </div>
+
+          <div className="hud-item">
+            <span className="hud-label">TIME</span>
+            <span className={`hud-value${isUrgent ? ' hud-urgent' : ''}`}>
+              {formatTime(timeLeft)}
+            </span>
+          </div>
+
+          <div className="hud-item">
+            <span className="hud-label">BEST</span>
+            <span className="hud-value">{bestScore}</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ── Falling arena ── */}
       <div className="arena">
         {activeNumbers.map(num => (
           <button
@@ -96,9 +145,6 @@ export function GameScreen({ gameState, logicalTime, bestScore, onDispatch, cloc
               background: tileColor(num.value),
             }}
             onPointerDown={(e) => {
-              // Fire on press, not release — tiles move while the finger is down,
-              // so waiting for onClick (which checks pointer position on release)
-              // causes missed taps when the tile has drifted away.
               e.preventDefault();
               collect(num.id);
             }}
@@ -108,7 +154,6 @@ export function GameScreen({ gameState, logicalTime, bestScore, onDispatch, cloc
         ))}
       </div>
 
-      {/* ── Stack panel ── */}
       <div className="stack-panel">
         <div className="stack-row">
           {player?.stack.map((item, idx) => (

@@ -1,4 +1,4 @@
-import type { GameAction } from '../domain/types';
+import type { MatchSnapshot } from '../multiplayer/types';
 
 /**
  * Abstracts wall-clock time and the animation frame scheduler.
@@ -23,12 +23,22 @@ export interface StoragePort {
 }
 
 /**
- * Synchronises player actions across clients.
- * For single-player MVP this is a no-op adapter.
- * Firebase (or any other transport) can implement the same interface
- * for real-time multiplayer without touching the domain.
+ * Synchronises matchmaking and live opponent score across clients.
+ * Game logic runs locally; Firestore carries shared config + score only.
  */
-export interface MatchSyncPort {
-  publishAction(action: GameAction): Promise<void>;
-  subscribeToActions(handler: (action: GameAction) => void): () => void;
+export interface MultiplayerPort {
+  quickMatch(): Promise<void>;
+  createRoom(): Promise<void>;
+  joinRoom(code: string): Promise<void>;
+  cancel(): Promise<void>;
+  subscribe(handler: (snapshot: MatchSnapshot | null) => void): () => void;
+  publishScore(score: number): Promise<void>;
+  leave(): Promise<void>;
+}
+
+/**
+ * Tracks analytics events (Firebase Analytics / GA4).
+ */
+export interface AnalyticsPort {
+  track(event: string, params?: Record<string, string | number | boolean>): void;
 }
