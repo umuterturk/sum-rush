@@ -24,7 +24,7 @@ export const FALL_SPEED_MAX = 0.00034;
 
 // Speed multiplier at match start vs end (tiles fall faster as time passes)
 export const FALL_SPEED_RAMP_START = 1.0;
-export const FALL_SPEED_RAMP_END = 2.0;
+export const FALL_SPEED_RAMP_END = 1.6;
 
 // Wave spawns: how many tiles appear together each wave
 export const SPAWN_WAVE_MIN = 2;

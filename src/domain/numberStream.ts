@@ -9,8 +9,6 @@ import {
   FALL_SPEED_MAX,
   FALL_SPEED_RAMP_START,
   FALL_SPEED_RAMP_END,
-  SPAWN_WAVE_MIN,
-  SPAWN_WAVE_MAX,
   SPAWN_INTERVAL_MIN,
   SPAWN_INTERVAL_VARIANCE,
   SPAWN_CUTOFF_BEFORE_END_MS,
@@ -38,11 +36,11 @@ function randomWeightedValue(rng: () => number): number {
 }
 
 /**
- * Five evenly-distributed horizontal lanes.
+ * Seven evenly-distributed horizontal lanes.
  * Using fixed lanes prevents tiles from overlapping horizontally
  * and keeps the arena readable at any screen width.
  */
-const LANES: readonly number[] = [0.12, 0.28, 0.50, 0.72, 0.88];
+const LANES: readonly number[] = [0.08, 0.21, 0.34, 0.50, 0.66, 0.79, 0.92];
 
 const SPAWN_CUTOFF_MS = MATCH_DURATION_MS - SPAWN_CUTOFF_BEFORE_END_MS;
 
@@ -68,15 +66,23 @@ function randomFallSpeed(rng: () => number, spawnTime: number): number {
 
 /**
  * Wave size increases as match progresses.
- * Early: 2-3 tiles per wave. Late: 3-5 tiles per wave.
+ * Early (0-33%): 2-3 tiles per wave
+ * Mid (33-66%): 4-5 tiles per wave
+ * Late (66-100%): 6-7 tiles per wave
  */
 function getWaveSize(rng: () => number, spawnTime: number): number {
   const progress = Math.min(1, spawnTime / SPAWN_CUTOFF_MS);
-  // Gradually shift the min from SPAWN_WAVE_MIN toward SPAWN_WAVE_MIN+1
-  const minBoost = Math.floor(progress * 1.5);
-  const effectiveMin = Math.min(SPAWN_WAVE_MIN + minBoost, SPAWN_WAVE_MAX - 1);
-  const effectiveMax = SPAWN_WAVE_MAX;
-  return effectiveMin + Math.floor(rng() * (effectiveMax - effectiveMin + 1));
+  
+  let min: number, max: number;
+  if (progress < 0.33) {
+    min = 2; max = 3;
+  } else if (progress < 0.66) {
+    min = 4; max = 5;
+  } else {
+    min = 6; max = 7;
+  }
+  
+  return min + Math.floor(rng() * (max - min + 1));
 }
 
 /** Pick distinct lane indices for a wave (no two tiles in the same lane). */
