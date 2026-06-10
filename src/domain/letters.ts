@@ -1,4 +1,4 @@
-import type { FallingNumber, NumberStreamEntry } from './types';
+import type { FallingLetter, LetterStreamEntry } from './types';
 
 /**
  * Derives the set of tiles that are currently visible (active) in the arena.
@@ -10,16 +10,16 @@ import type { FallingNumber, NumberStreamEntry } from './types';
  * Both the reducer (for tap validation) and the renderer use this same
  * function, guaranteeing they always agree on what is tappable.
  *
- * @param stream     Full pre-generated stream for the match
- * @param collectedIds  IDs already removed from play for this player
- * @param logicalTime   Milliseconds elapsed since match start
+ * @param stream       Full pre-generated stream for the match
+ * @param collectedIds IDs already removed from play for this player
+ * @param logicalTime  Milliseconds elapsed since match start
  */
-export function getActiveNumbers(
-  stream: NumberStreamEntry[],
+export function getActiveLetters(
+  stream: LetterStreamEntry[],
   collectedIds: Set<string>,
   logicalTime: number,
-): FallingNumber[] {
-  const result: FallingNumber[] = [];
+): FallingLetter[] {
+  const result: FallingLetter[] = [];
 
   for (const entry of stream) {
     if (collectedIds.has(entry.id)) continue;

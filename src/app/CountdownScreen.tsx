@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { TARGET_SUM } from '../domain/constants';
 
 interface Props {
   onComplete: () => void;
@@ -35,8 +34,8 @@ export function CountdownScreen({ onComplete, opponentName }: Props) {
             <span className="countdown-opponent">1 VS 1</span>
           </div>
         )}
-        <div className="countdown-target-label">TARGET</div>
-        <div className="countdown-target">{TARGET_SUM}</div>
+        <div className="countdown-target-label">WORD RUSH</div>
+        <div className="countdown-subtitle">spell Turkish words · longer = more points</div>
         {countdownValue !== undefined && (
           <div key={countdownValue} className="countdown-number">
             {countdownValue}

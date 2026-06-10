@@ -5,10 +5,10 @@ import {
   createInitialPlayerState,
 } from '../gameReducer';
 import type { GameState } from '../types';
-import { MAX_STACK_SIZE, REMOVE_COOLDOWN_MS, TARGET_SUM } from '../constants';
+import { MAX_BUFFER_SIZE, REMOVE_COOLDOWN_MS, WORD_SCORE } from '../constants';
 
 const SEED = 'test-seed-deterministic';
-const WALL_START = 1_000_000; // arbitrary wall-clock origin
+const WALL_START = 1_000_000;
 
 /** Helper: start a fresh match */
 function startedState(): GameState {
@@ -39,7 +39,7 @@ describe('START_MATCH', () => {
     const { players } = startedState();
     expect(players['local']).toBeDefined();
     expect(players['local'].score).toBe(0);
-    expect(players['local'].stack).toHaveLength(0);
+    expect(players['local'].buffer).toHaveLength(0);
   });
 
   it('restarting produces the same stream for the same seed', () => {
@@ -49,179 +49,185 @@ describe('START_MATCH', () => {
   });
 });
 
-// ── COLLECT_NUMBER ──────────────────────────────────────────────────────────
+// ── COLLECT_LETTER ──────────────────────────────────────────────────────────
 
-describe('COLLECT_NUMBER', () => {
-  it('accepts an active tile and adds it to the stack', () => {
+describe('COLLECT_LETTER', () => {
+  it('accepts an active tile and adds it to the buffer', () => {
     const state = startedState();
     const next = gameReducer(state, {
-      type: 'COLLECT_NUMBER',
+      type: 'COLLECT_LETTER',
       playerId: 'local',
-      numberId: state.stream[0].id,
+      letterId: state.stream[0].id,
       at: activeAt(state, 0),
     });
-    // Either scored (stack cleared) or stack grew
-    const player = next.players['local'];
-    expect(player.stack.length + player.score).toBeGreaterThan(0);
+    expect(next.players['local'].buffer.length).toBe(1);
+    expect(next.players['local'].buffer[0].letter).toBe(state.stream[0].letter);
   });
 
   it('rejects a tile that has not yet spawned (logical time < spawnTime)', () => {
     const state = startedState();
-    // at = WALL_START means logicalTime = 0, before first tile spawns at 600ms+
     const next = gameReducer(state, {
-      type: 'COLLECT_NUMBER',
+      type: 'COLLECT_LETTER',
       playerId: 'local',
-      numberId: state.stream[0].id,
+      letterId: state.stream[0].id,
       at: WALL_START,
     });
-    expect(next.players['local'].stack.length).toBe(0);
-    expect(next.players['local'].score).toBe(0);
+    expect(next.players['local'].buffer.length).toBe(0);
   });
 
   it('rejects a tile that has already left the arena (expired)', () => {
     const state = startedState();
     const entry = state.stream[0];
     const fallDuration = 1 / entry.fallSpeed;
-    // Place logical time well past the tile's exit
     const at = WALL_START + entry.spawnTime + fallDuration + 1000;
     const next = gameReducer(state, {
-      type: 'COLLECT_NUMBER',
+      type: 'COLLECT_LETTER',
       playerId: 'local',
-      numberId: entry.id,
+      letterId: entry.id,
       at,
     });
-    expect(next.players['local'].stack.length).toBe(0);
-    expect(next.players['local'].score).toBe(0);
+    expect(next.players['local'].buffer.length).toBe(0);
   });
 
   it('does not allow collecting the same tile twice', () => {
     const state = startedState();
     const at = activeAt(state, 0);
     const action = {
-      type: 'COLLECT_NUMBER' as const,
+      type: 'COLLECT_LETTER' as const,
       playerId: 'local',
-      numberId: state.stream[0].id,
+      letterId: state.stream[0].id,
       at,
     };
     const after1 = gameReducer(state, action);
     const after2 = gameReducer(after1, action);
-    // Stack length + score must not grow on second attempt
-    const s1 = after1.players['local'];
-    const s2 = after2.players['local'];
-    expect(s2.stack.length + s2.score).toBe(s1.stack.length + s1.score);
+    expect(after2.players['local'].buffer.length).toBe(after1.players['local'].buffer.length);
   });
 
-  it('slides the window (evicts oldest) when the stack is already at MAX_STACK_SIZE', () => {
+  it('slides the window (evicts oldest) when the buffer is already at MAX_BUFFER_SIZE', () => {
     const base = startedState();
-    // Use low values so the sum after eviction + new tile won't accidentally hit TARGET_SUM
-    const fullStack = Array.from({ length: MAX_STACK_SIZE }, (_, i) => ({
-      numberId: `fake-${i}`,
-      value: 1,
+    const fullBuffer = Array.from({ length: MAX_BUFFER_SIZE }, (_, i) => ({
+      letterId: `fake-${i}`,
+      letter: 'a',
     }));
     const fullState: GameState = {
       ...base,
       players: {
         local: {
           ...createInitialPlayerState(),
-          stack: fullStack,
-          collectedIds: new Set(fullStack.map(s => s.numberId)),
+          buffer: fullBuffer,
+          collectedIds: new Set(fullBuffer.map(b => b.letterId)),
         },
       },
     };
     const at = activeAt(base, 0);
     const next = gameReducer(fullState, {
-      type: 'COLLECT_NUMBER',
+      type: 'COLLECT_LETTER',
       playerId: 'local',
-      numberId: base.stream[0].id,
+      letterId: base.stream[0].id,
       at,
     });
-    const resultStack = next.players['local'].stack;
-    // Stack stays at MAX_STACK_SIZE
-    expect(resultStack.length).toBe(MAX_STACK_SIZE);
-    // The oldest item (fake-0, value 1) was evicted
-    expect(resultStack[0].numberId).toBe('fake-1');
-    // The new tile is at the end
-    expect(resultStack[MAX_STACK_SIZE - 1].numberId).toBe(base.stream[0].id);
+    const resultBuffer = next.players['local'].buffer;
+    expect(resultBuffer.length).toBe(MAX_BUFFER_SIZE);
+    // oldest (fake-0) evicted
+    expect(resultBuffer[0].letterId).toBe('fake-1');
+    // new tile at the end
+    expect(resultBuffer[MAX_BUFFER_SIZE - 1].letterId).toBe(base.stream[0].id);
   });
 });
 
-// ── SCORING ─────────────────────────────────────────────────────────────────
+// ── SUBMIT_WORD ──────────────────────────────────────────────────────────────
 
-describe('scoring', () => {
-  it('scores +1 and clears the stack when sum equals TARGET_SUM', () => {
+describe('SUBMIT_WORD', () => {
+  it('scores correct points and clears buffer for a valid word', () => {
     const base = startedState();
-    // Find the first stream entry and compute what value completes 21
-    const targetEntry = base.stream[0];
-    const needed = TARGET_SUM - targetEntry.value;
-
-    if (needed < 1 || needed > 15) {
-      // Edge case: first tile IS 21 or makes it impossible — skip this scenario
-      return;
-    }
-
-    // Seed the stack with (TARGET_SUM - targetEntry.value) manually
+    // Seed the buffer with a known valid Turkish word "kale" (4 letters → 2 pts)
     const primed: GameState = {
       ...base,
       players: {
         local: {
           ...createInitialPlayerState(),
-          stack: [{ numberId: 'pre', value: needed }],
-          collectedIds: new Set(['pre']),
+          buffer: [
+            { letterId: 'x0', letter: 'k' },
+            { letterId: 'x1', letter: 'a' },
+            { letterId: 'x2', letter: 'l' },
+            { letterId: 'x3', letter: 'e' },
+          ],
+          collectedIds: new Set(['x0', 'x1', 'x2', 'x3']),
         },
       },
     };
-
-    const at = activeAt(base, 0);
     const next = gameReducer(primed, {
-      type: 'COLLECT_NUMBER',
+      type: 'SUBMIT_WORD',
       playerId: 'local',
-      numberId: targetEntry.id,
-      at,
+      at: WALL_START + 5000,
     });
-
-    expect(next.players['local'].score).toBe(1);
-    expect(next.players['local'].stack).toHaveLength(0);
+    expect(next.players['local'].score).toBe(WORD_SCORE[4]);
+    expect(next.players['local'].buffer).toHaveLength(0);
   });
 
-  it('does NOT score when sum is below TARGET_SUM', () => {
+  it('does not score and keeps the buffer for an invalid word', () => {
     const base = startedState();
-    const entry = base.stream[0];
-    // Ensure we won't hit 21 by seeding a stack that would sum < 21 with this tile
-    const safeNeeded = Math.max(0, TARGET_SUM - entry.value - 5);
-    if (safeNeeded === 0) return; // tile alone might score — skip
-
     const primed: GameState = {
       ...base,
       players: {
         local: {
           ...createInitialPlayerState(),
-          stack: [{ numberId: 'pre', value: safeNeeded }],
-          collectedIds: new Set(['pre']),
+          buffer: [
+            { letterId: 'y0', letter: 'x' },
+            { letterId: 'y1', letter: 'q' },
+            { letterId: 'y2', letter: 'z' },
+          ],
+          collectedIds: new Set(['y0', 'y1', 'y2']),
         },
       },
     };
-
     const next = gameReducer(primed, {
-      type: 'COLLECT_NUMBER',
+      type: 'SUBMIT_WORD',
       playerId: 'local',
-      numberId: entry.id,
-      at: activeAt(base, 0),
+      at: WALL_START + 5000,
     });
     expect(next.players['local'].score).toBe(0);
-    expect(next.players['local'].stack.length).toBeGreaterThan(0);
+    expect(next.players['local'].buffer).toHaveLength(3);
+  });
+
+  it('scores more points for a longer valid word', () => {
+    const base = startedState();
+    // "yaşam" = 5 letters, a valid Turkish word (4 pts)
+    const primed: GameState = {
+      ...base,
+      players: {
+        local: {
+          ...createInitialPlayerState(),
+          buffer: [
+            { letterId: 'z0', letter: 'y' },
+            { letterId: 'z1', letter: 'a' },
+            { letterId: 'z2', letter: 'ş' },
+            { letterId: 'z3', letter: 'a' },
+            { letterId: 'z4', letter: 'm' },
+          ],
+          collectedIds: new Set(['z0', 'z1', 'z2', 'z3', 'z4']),
+        },
+      },
+    };
+    const next = gameReducer(primed, {
+      type: 'SUBMIT_WORD',
+      playerId: 'local',
+      at: WALL_START + 5000,
+    });
+    expect(next.players['local'].score).toBe(WORD_SCORE[5]);
   });
 });
 
-// ── REMOVE_STACK_ITEM ────────────────────────────────────────────────────────
+// ── REMOVE_BUFFER_ITEM ───────────────────────────────────────────────────────
 
-describe('REMOVE_STACK_ITEM', () => {
+describe('REMOVE_BUFFER_ITEM', () => {
   function stateWithOneItem(): { state: GameState; collectedAt: number } {
     const base = startedState();
     const collectedAt = activeAt(base, 0);
     const after = gameReducer(base, {
-      type: 'COLLECT_NUMBER',
+      type: 'COLLECT_LETTER',
       playerId: 'local',
-      numberId: base.stream[0].id,
+      letterId: base.stream[0].id,
       at: collectedAt,
     });
     return { state: after, collectedAt };
@@ -229,27 +235,24 @@ describe('REMOVE_STACK_ITEM', () => {
 
   it('removes the item when no cooldown is active', () => {
     const { state, collectedAt } = stateWithOneItem();
-    if (state.players['local'].stack.length === 0) return; // scored 21, skip
-
+    expect(state.players['local'].buffer.length).toBe(1);
     const next = gameReducer(state, {
-      type: 'REMOVE_STACK_ITEM',
+      type: 'REMOVE_BUFFER_ITEM',
       playerId: 'local',
-      stackIndex: 0,
+      bufferIndex: 0,
       at: collectedAt + 10,
     });
-    expect(next.players['local'].stack.length).toBe(0);
+    expect(next.players['local'].buffer.length).toBe(0);
   });
 
   it('sets a cooldown after a successful removal', () => {
     const { state, collectedAt } = stateWithOneItem();
-    if (state.players['local'].stack.length === 0) return;
-
     const removeAt = collectedAt + 10;
     const logicalRemoveTime = removeAt - WALL_START;
     const next = gameReducer(state, {
-      type: 'REMOVE_STACK_ITEM',
+      type: 'REMOVE_BUFFER_ITEM',
       playerId: 'local',
-      stackIndex: 0,
+      bufferIndex: 0,
       at: removeAt,
     });
     expect(next.players['local'].removeCooldownUntil).toBe(logicalRemoveTime + REMOVE_COOLDOWN_MS);
@@ -257,66 +260,54 @@ describe('REMOVE_STACK_ITEM', () => {
 
   it('blocks removal while on cooldown', () => {
     const { state, collectedAt } = stateWithOneItem();
-    if (state.players['local'].stack.length === 0) return;
-
-    // First removal — sets cooldown
     const afterRemove = gameReducer(state, {
-      type: 'REMOVE_STACK_ITEM',
+      type: 'REMOVE_BUFFER_ITEM',
       playerId: 'local',
-      stackIndex: 0,
+      bufferIndex: 0,
       at: collectedAt + 10,
     });
-
-    // Inject another item so there is something to remove
     const withItem: GameState = {
       ...afterRemove,
       players: {
         local: {
           ...afterRemove.players['local'],
-          stack: [{ numberId: 'extra', value: 3 }],
+          buffer: [{ letterId: 'extra', letter: 'e' }],
         },
       },
     };
-
-    // Try to remove immediately (100 ms after first removal, cooldown = 1000 ms)
     const blocked = gameReducer(withItem, {
-      type: 'REMOVE_STACK_ITEM',
+      type: 'REMOVE_BUFFER_ITEM',
       playerId: 'local',
-      stackIndex: 0,
+      bufferIndex: 0,
       at: collectedAt + 110,
     });
-    expect(blocked.players['local'].stack.length).toBe(1);
+    expect(blocked.players['local'].buffer.length).toBe(1);
   });
 
   it('allows removal after the cooldown has elapsed', () => {
     const { state, collectedAt } = stateWithOneItem();
-    if (state.players['local'].stack.length === 0) return;
-
     const afterRemove = gameReducer(state, {
-      type: 'REMOVE_STACK_ITEM',
+      type: 'REMOVE_BUFFER_ITEM',
       playerId: 'local',
-      stackIndex: 0,
+      bufferIndex: 0,
       at: collectedAt + 10,
     });
-
     const withItem: GameState = {
       ...afterRemove,
       players: {
         local: {
           ...afterRemove.players['local'],
-          stack: [{ numberId: 'extra2', value: 4 }],
+          buffer: [{ letterId: 'extra2', letter: 'a' }],
         },
       },
     };
-
-    // Remove after cooldown (>1000 ms later)
     const allowed = gameReducer(withItem, {
-      type: 'REMOVE_STACK_ITEM',
+      type: 'REMOVE_BUFFER_ITEM',
       playerId: 'local',
-      stackIndex: 0,
+      bufferIndex: 0,
       at: collectedAt + 1100,
     });
-    expect(allowed.players['local'].stack.length).toBe(0);
+    expect(allowed.players['local'].buffer.length).toBe(0);
   });
 });
 
@@ -327,11 +318,8 @@ describe('action replay', () => {
     const actions = [
       { type: 'START_MATCH' as const, seed: SEED, at: WALL_START },
     ];
-
     const stateA = actions.reduce(gameReducer, INITIAL_GAME_STATE);
     const stateB = actions.reduce(gameReducer, INITIAL_GAME_STATE);
-
-    // Deep equality check (ignores Set identity)
     expect(stateA.stream).toEqual(stateB.stream);
     expect(stateA.seed).toBe(stateB.seed);
     expect(stateA.matchStatus).toBe(stateB.matchStatus);

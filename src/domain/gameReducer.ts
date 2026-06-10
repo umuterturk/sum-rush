@@ -1,16 +1,17 @@
-import type { GameAction, GameState, PlayerState, StackItem } from './types';
+import type { GameAction, GameState, PlayerState, BufferItem } from './types';
 import {
-  TARGET_SUM,
-  MAX_STACK_SIZE,
+  MAX_BUFFER_SIZE,
   REMOVE_COOLDOWN_MS,
   MATCH_DURATION_MS,
+  WORD_SCORE,
 } from './constants';
-import { generateNumberStream } from './numberStream';
+import { generateLetterStream } from './letterStream';
+import { isValidWord } from './wordSet';
 
 export function createInitialPlayerState(): PlayerState {
   return {
     score: 0,
-    stack: [],
+    buffer: [],
     removeCooldownUntil: 0,
     collectedIds: new Set(),
   };
@@ -29,8 +30,8 @@ export const INITIAL_GAME_STATE: GameState = {
  * Pure reducer: (state, action) => state.
  *
  * No side effects, no imports from React/DOM/timers.
- * Remote actions from future multiplayer adapters can be replayed
- * through this same function to reproduce any past state exactly.
+ * Remote actions from multiplayer adapters can be replayed through this
+ * same function to reproduce any past state exactly.
  */
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
@@ -40,7 +41,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         matchStartedAt: action.at,
         matchDuration: MATCH_DURATION_MS,
         seed: action.seed,
-        stream: generateNumberStream(action.seed),
+        stream: generateLetterStream(action.seed),
         players: {
           local: createInitialPlayerState(),
         },
@@ -56,94 +57,58 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return INITIAL_GAME_STATE;
     }
 
-    case 'COLLECT_NUMBER': {
+    case 'COLLECT_LETTER': {
       const player = state.players[action.playerId];
       if (!player) return state;
 
-      const entry = state.stream.find(e => e.id === action.numberId);
+      const entry = state.stream.find(e => e.id === action.letterId);
       if (!entry) return state;
 
-      // Validate the tile is active at the moment the action was created
       const logicalTime = action.at - state.matchStartedAt;
       const fallDuration = 1 / entry.fallSpeed;
       const isActive =
         entry.spawnTime <= logicalTime &&
         logicalTime < entry.spawnTime + fallDuration &&
-        !player.collectedIds.has(action.numberId);
+        !player.collectedIds.has(action.letterId);
 
       if (!isActive) return state;
 
-      // Sliding window: when the stack is full, evict the oldest item first
-      const baseStack =
-        player.stack.length >= MAX_STACK_SIZE
-          ? player.stack.slice(1)
-          : player.stack;
+      // Sliding window: when the buffer is full, evict the oldest letter first
+      const baseBuffer =
+        player.buffer.length >= MAX_BUFFER_SIZE
+          ? player.buffer.slice(1)
+          : player.buffer;
 
-      const newStack: StackItem[] = [
-        ...baseStack,
-        { numberId: action.numberId, value: entry.value },
+      const newBuffer: BufferItem[] = [
+        ...baseBuffer,
+        { letterId: action.letterId, letter: entry.letter },
       ];
       const newCollectedIds = new Set(player.collectedIds);
-      newCollectedIds.add(action.numberId);
-      const newSum = newStack.reduce((s, item) => s + item.value, 0);
+      newCollectedIds.add(action.letterId);
 
-      if (newSum === TARGET_SUM) {
-        // Exact 21 → score and clear stack immediately
-        return {
-          ...state,
-          players: {
-            ...state.players,
-            [action.playerId]: {
-              ...player,
-              score: player.score + 1,
-              stack: [],
-              collectedIds: newCollectedIds,
-            },
-          },
-        };
-      }
-
-      // Overshoot (> 21) or under — player must manage their stack
       return {
         ...state,
         players: {
           ...state.players,
           [action.playerId]: {
             ...player,
-            stack: newStack,
+            buffer: newBuffer,
             collectedIds: newCollectedIds,
           },
         },
       };
     }
 
-    case 'REMOVE_STACK_ITEM': {
+    case 'REMOVE_BUFFER_ITEM': {
       const player = state.players[action.playerId];
       if (!player) return state;
 
       const logicalTime = action.at - state.matchStartedAt;
       if (logicalTime < player.removeCooldownUntil) return state;
 
-      if (action.stackIndex < 0 || action.stackIndex >= player.stack.length) return state;
+      if (action.bufferIndex < 0 || action.bufferIndex >= player.buffer.length) return state;
 
-      const newStack = player.stack.filter((_, i) => i !== action.stackIndex);
-      const newSum = newStack.reduce((s, item) => s + item.value, 0);
-
-      if (newSum === TARGET_SUM) {
-        // Removing led to exactly 21 → score and clear
-        return {
-          ...state,
-          players: {
-            ...state.players,
-            [action.playerId]: {
-              ...player,
-              score: player.score + 1,
-              stack: [],
-              removeCooldownUntil: logicalTime + REMOVE_COOLDOWN_MS,
-            },
-          },
-        };
-      }
+      const newBuffer = player.buffer.filter((_, i) => i !== action.bufferIndex);
 
       return {
         ...state,
@@ -151,8 +116,68 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           ...state.players,
           [action.playerId]: {
             ...player,
-            stack: newStack,
+            buffer: newBuffer,
             removeCooldownUntil: logicalTime + REMOVE_COOLDOWN_MS,
+          },
+        },
+      };
+    }
+
+    case 'REPLACE_BUFFER_ITEM': {
+      const player = state.players[action.playerId];
+      if (!player) return state;
+
+      const entry = state.stream.find(e => e.id === action.letterId);
+      if (!entry) return state;
+
+      const logicalTime = action.at - state.matchStartedAt;
+      const fallDuration = 1 / entry.fallSpeed;
+      const isActive =
+        entry.spawnTime <= logicalTime &&
+        logicalTime < entry.spawnTime + fallDuration &&
+        !player.collectedIds.has(action.letterId);
+
+      if (!isActive) return state;
+      if (action.bufferIndex < 0 || action.bufferIndex >= player.buffer.length) return state;
+
+      const newBuffer = player.buffer.map((item, i) =>
+        i === action.bufferIndex
+          ? { letterId: action.letterId, letter: entry.letter }
+          : item,
+      );
+      const newCollectedIds = new Set(player.collectedIds);
+      newCollectedIds.add(action.letterId);
+
+      return {
+        ...state,
+        players: {
+          ...state.players,
+          [action.playerId]: {
+            ...player,
+            buffer: newBuffer,
+            collectedIds: newCollectedIds,
+          },
+        },
+      };
+    }
+
+    case 'SUBMIT_WORD': {
+      const player = state.players[action.playerId];
+      if (!player) return state;
+
+      const word = player.buffer.map(b => b.letter).join('');
+      if (!isValidWord(word)) return state;
+
+      const points = WORD_SCORE[word.length] ?? 1;
+
+      return {
+        ...state,
+        players: {
+          ...state.players,
+          [action.playerId]: {
+            ...player,
+            score: player.score + points,
+            buffer: [],
           },
         },
       };

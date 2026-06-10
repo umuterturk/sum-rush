@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getActiveNumbers } from '../domain/numbers';
-import type { FallingNumber, GameAction, GameState } from '../domain/types';
-import { MAX_STACK_SIZE, REMOVE_COOLDOWN_MS, TARGET_SUM } from '../domain/constants';
+import { getActiveLetters } from '../domain/letters';
+import { isValidWord } from '../domain/wordSet';
+import type { FallingLetter, GameAction, GameState } from '../domain/types';
+import { MAX_BUFFER_SIZE, MIN_WORD_LENGTH, REMOVE_COOLDOWN_MS, WORD_SCORE } from '../domain/constants';
 import type { ClockPort } from '../ports';
 
 interface PopEffect {
   id: string;
   x: number;
   y: number;
-  value: number;
+  letter: string;
   color: string;
 }
 
@@ -31,18 +32,31 @@ function formatTime(ms: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
-/** One distinct color per value (1–7) for instant visual recognition. */
-function tileColor(value: number): string {
-  switch (value) {
-    case 1: return '#4fc3f7';
-    case 2: return '#4dd0e1';
-    case 3: return '#81c784';
-    case 4: return '#fff176';
-    case 5: return '#ffb74d';
-    case 6: return '#ef9a9a';
-    case 7: return '#ce93d8';
-    default: return '#ffffff';
+const TURKISH_VOWELS = new Set(['a', 'e', 'ı', 'i', 'o', 'ö', 'u', 'ü']);
+const VOWEL_COLORS = ['#ffd54f', '#ffb74d', '#fff176'];
+const CONSONANT_COLORS = ['#4fc3f7', '#4dd0e1', '#81c784', '#ce93d8', '#80cbc4'];
+
+/**
+ * Turkish-correct uppercase: 'i' → 'İ' (dotted), 'ı' → 'I' (dotless).
+ * CSS text-transform collapses both to 'I', making them indistinguishable.
+ * Using this function instead keeps them visually distinct on tile labels.
+ */
+function turkishUpper(ch: string): string {
+  if (ch === 'i') return 'İ';
+  if (ch === 'ı') return 'I';
+  return ch.toUpperCase();
+}
+
+function displayWord(word: string): string {
+  return Array.from(word).map(turkishUpper).join('');
+}
+
+function tileColor(letter: string): string {
+  const code = letter.charCodeAt(0);
+  if (TURKISH_VOWELS.has(letter)) {
+    return VOWEL_COLORS[code % VOWEL_COLORS.length];
   }
+  return CONSONANT_COLORS[code % CONSONANT_COLORS.length];
 }
 
 export function GameScreen({
@@ -62,14 +76,24 @@ export function GameScreen({
   const localScore = player?.score ?? 0;
 
   const collectedIds = player?.collectedIds ?? new Set<string>();
-  const activeNumbers = getActiveNumbers(gameState.stream, collectedIds, logicalTime);
+  const activeLetters = getActiveLetters(gameState.stream, collectedIds, logicalTime);
 
-  const stackSum = player?.stack.reduce((s, item) => s + item.value, 0) ?? 0;
   const cooldownRemaining = player
     ? Math.max(0, player.removeCooldownUntil - logicalTime)
     : 0;
   const cooldownPct = (cooldownRemaining / REMOVE_COOLDOWN_MS) * 100;
   const onCooldown = cooldownRemaining > 0;
+
+  // Current word being assembled
+  const currentWord = player?.buffer.map(b => b.letter).join('') ?? '';
+  const isWordValid = currentWord.length >= MIN_WORD_LENGTH && isValidWord(currentWord);
+  const wordScore = isWordValid ? (WORD_SCORE[currentWord.length] ?? 1) : 0;
+
+  // Submit feedback state: 'valid' | 'invalid' | null
+  const [submitFeedback, setSubmitFeedback] = useState<'valid' | 'invalid' | null>(null);
+
+  // Index of the buffer slot selected for replacement (null = none selected)
+  const [selectedBufferIndex, setSelectedBufferIndex] = useState<number | null>(null);
 
   const prevScoreRef = useRef(localScore);
   useEffect(() => {
@@ -84,23 +108,61 @@ export function GameScreen({
 
   const [popEffects, setPopEffects] = useState<PopEffect[]>([]);
 
-  const collect = useCallback((num: FallingNumber) => {
-    onDispatch({ type: 'COLLECT_NUMBER', playerId: 'local', numberId: num.id, at: clock.now() });
-    const effectId = num.id + '-' + clock.now();
-    setPopEffects(prev => [...prev, {
-      id: effectId,
-      x: num.xPosition,
-      y: num.yPosition,
-      value: num.value,
-      color: tileColor(num.value),
-    }]);
+  const collect = useCallback((tile: FallingLetter) => {
+    if (selectedBufferIndex !== null) {
+      onDispatch({
+        type: 'REPLACE_BUFFER_ITEM',
+        playerId: 'local',
+        bufferIndex: selectedBufferIndex,
+        letterId: tile.id,
+        at: clock.now(),
+      });
+      setSelectedBufferIndex(null);
+    } else {
+      onDispatch({
+        type: 'COLLECT_LETTER',
+        playerId: 'local',
+        letterId: tile.id,
+        at: clock.now(),
+      });
+    }
+    const effectId = tile.id + '-' + clock.now();
+    setPopEffects(prev => [
+      ...prev,
+      {
+        id: effectId,
+        x: tile.xPosition,
+        y: tile.yPosition,
+        letter: tile.letter,
+        color: tileColor(tile.letter),
+      },
+    ]);
     setTimeout(() => {
       setPopEffects(prev => prev.filter(p => p.id !== effectId));
     }, 500);
-  }, [onDispatch, clock]);
+  }, [onDispatch, clock, selectedBufferIndex]);
 
-  function remove(stackIndex: number) {
-    onDispatch({ type: 'REMOVE_STACK_ITEM', playerId: 'local', stackIndex, at: clock.now() });
+  function handleBufferItemTap(bufferIndex: number) {
+    if (selectedBufferIndex === bufferIndex) {
+      onDispatch({
+        type: 'REMOVE_BUFFER_ITEM',
+        playerId: 'local',
+        bufferIndex,
+        at: clock.now(),
+      });
+      setSelectedBufferIndex(null);
+      return;
+    }
+    setSelectedBufferIndex(bufferIndex);
+  }
+
+  function handleSubmit() {
+    if (currentWord.length < MIN_WORD_LENGTH) return;
+    const valid = isWordValid;
+    setSubmitFeedback(valid ? 'valid' : 'invalid');
+    setSelectedBufferIndex(null);
+    onDispatch({ type: 'SUBMIT_WORD', playerId: 'local', at: clock.now() });
+    setTimeout(() => setSubmitFeedback(null), 700);
   }
 
   return (
@@ -118,7 +180,6 @@ export function GameScreen({
               {formatTime(timeLeft)}
             </span>
             <span className="vs-versus">VS</span>
-            <span className="vs-target-line">target <strong>{TARGET_SUM}</strong></span>
           </div>
 
           <div className={`vs-card vs-card--opp${!isLeading && !isBehind ? '' : isLeading ? ' vs-card--behind' : ' vs-card--leading'}`}>
@@ -137,11 +198,6 @@ export function GameScreen({
           </div>
 
           <div className="hud-item">
-            <span className="hud-label">TARGET</span>
-            <span className="hud-value hud-target">{TARGET_SUM}</span>
-          </div>
-
-          <div className="hud-item">
             <span className="hud-label">TIME</span>
             <span className={`hud-value${isUrgent ? ' hud-urgent' : ''}`}>
               {formatTime(timeLeft)}
@@ -156,21 +212,21 @@ export function GameScreen({
       )}
 
       <div className="arena">
-        {activeNumbers.map(num => (
+        {activeLetters.map(tile => (
           <button
-            key={num.id}
+            key={tile.id}
             className="tile"
             style={{
-              left: `${num.xPosition * 100}%`,
-              top: `${num.yPosition * 100}%`,
-              background: tileColor(num.value),
+              left: `${tile.xPosition * 100}%`,
+              top: `${tile.yPosition * 100}%`,
+              background: tileColor(tile.letter),
             }}
             onPointerDown={(e) => {
               e.preventDefault();
-              collect(num);
+              collect(tile);
             }}
           >
-            {num.value}
+            {turkishUpper(tile.letter)}
           </button>
         ))}
         {popEffects.map(p => (
@@ -180,13 +236,10 @@ export function GameScreen({
             aria-hidden="true"
             style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
           >
-            {/* Bubble that pops */}
             <div className="tile-pop__bubble" style={{ background: p.color }}>
-              {p.value}
+              {turkishUpper(p.letter)}
             </div>
-            {/* Shockwave ring */}
             <div className="tile-pop__ring" style={{ borderColor: p.color }} />
-            {/* Particles radiating outward */}
             {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => (
               <div
                 key={angle}
@@ -201,40 +254,51 @@ export function GameScreen({
         ))}
       </div>
 
-      <div className="stack-panel">
-        <div className="stack-row">
-          {player?.stack.map((item, idx) => (
+      <div className={`buffer-panel${submitFeedback === 'valid' ? ' buffer-panel--valid' : ''}${submitFeedback === 'invalid' ? ' buffer-panel--invalid' : ''}`}>
+        <div className="buffer-row">
+          {player?.buffer.map((item, idx) => (
             <button
-              key={`${item.numberId}-${idx}`}
-              className={`stack-tile${onCooldown ? ' stack-tile--cooling' : ''}`}
-              style={{ background: tileColor(item.value) }}
-              onClick={() => remove(idx)}
-              aria-label={`Remove ${item.value} from stack`}
+              key={`${item.letterId}-${idx}`}
+              className={`buffer-tile${selectedBufferIndex === idx ? ' buffer-tile--selected' : ''}`}
+              style={{ background: tileColor(item.letter) }}
+              onClick={() => handleBufferItemTap(idx)}
+              aria-label={`Select ${turkishUpper(item.letter)} to replace, double-tap to remove`}
             >
-              {item.value}
+              {turkishUpper(item.letter)}
             </button>
           ))}
-          {Array.from({ length: MAX_STACK_SIZE - (player?.stack.length ?? 0) }).map((_, i) => (
-            <div key={`empty-${i}`} className="stack-slot-empty" aria-hidden="true" />
+          {Array.from({ length: MAX_BUFFER_SIZE - (player?.buffer.length ?? 0) }).map((_, i) => (
+            <div key={`empty-${i}`} className="buffer-slot-empty" aria-hidden="true" />
           ))}
         </div>
 
-        <div className="stack-meta">
-          <span
-            className={
-              'stack-sum' +
-              (stackSum === TARGET_SUM ? ' stack-sum--exact' : '') +
-              (stackSum > TARGET_SUM ? ' stack-sum--over' : '')
-            }
-          >
-            {stackSum} / {TARGET_SUM}
-          </span>
-
+        <div className="buffer-meta">
           {onCooldown && (
             <div className="cooldown-track">
               <div className="cooldown-fill" style={{ width: `${cooldownPct}%` }} />
             </div>
           )}
+
+          <div className="word-display">
+            {currentWord.length > 0 ? (
+              <span className={`word-text${isWordValid ? ' word-text--valid' : ''}`}>
+                {displayWord(currentWord)}
+              </span>
+            ) : (
+              <span className="word-text word-text--placeholder">tap letters to spell a word</span>
+            )}
+            {isWordValid && (
+              <span className="word-score-badge">+{wordScore}</span>
+            )}
+          </div>
+
+          <button
+            className={`submit-btn${currentWord.length < MIN_WORD_LENGTH ? ' submit-btn--disabled' : ''}${isWordValid ? ' submit-btn--ready' : ''}`}
+            onClick={handleSubmit}
+            disabled={currentWord.length < MIN_WORD_LENGTH}
+          >
+            SUBMIT
+          </button>
         </div>
       </div>
     </div>

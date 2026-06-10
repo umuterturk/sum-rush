@@ -1,6 +1,6 @@
 import type { StoragePort } from '../ports';
 
-const BEST_SCORE_KEY = '21rush:bestScore';
+const BEST_SCORE_KEY = 'word-rush:bestScore';
 
 export class LocalStorageAdapter implements StoragePort {
   async saveBestScore(score: number): Promise<void> {
